@@ -14,6 +14,7 @@ Source:         %{name}-%{version}.tar.xz
 Patch0:         0001-Set-specific-media.role-for-pulsesink-probe.patch
 Patch1:         0002-qtmux-write-rotation-information-into-the-TKHD-matri.patch
 Patch2:         0003-qml-Fix-build-with-Qt-5.6.patch
+Patch3:         0004-fix-wayland-seat-version.patch
 
 %define sonamever %(echo %{version} | cut -d '+' -f 1)
 
@@ -78,6 +79,7 @@ plug-ins.
   -Doss=disabled -Doss4=disabled \
   -Dqt5=enabled \
   -Dqt6=disabled \
+  -Dqt-x11=disabled \
   -Drpicamsrc=disabled \
   -Dshout2=disabled \
   -Dtaglib=disabled \
