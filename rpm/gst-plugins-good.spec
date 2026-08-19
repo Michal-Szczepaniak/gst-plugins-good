@@ -15,6 +15,7 @@ Patch0:         0001-Set-specific-media.role-for-pulsesink-probe.patch
 Patch1:         0002-qtmux-write-rotation-information-into-the-TKHD-matri.patch
 Patch2:         0003-qml-Fix-build-with-Qt-5.6.patch
 Patch3:         0004-fix-wayland-seat-version.patch
+Patch4:         0005-qml-avoid-relocking-gl-memory-on-redraw.patch
 
 %define sonamever %(echo %{version} | cut -d '+' -f 1)
 

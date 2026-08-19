@@ -1,0 +1,67 @@
+From a01aa436b4e7082fc49cbc9774240c22a5ccbfe5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Micha=C5=82=20Szczepaniak?= <m.szczepaniak.000@gmail.com>
+Date: Wed, 19 Aug 2026 20:55:39 +0200
+Subject: [PATCH] qml: avoid re-locking GL memory on repeated redraws of the
+ same frame
+
+GstQSGMaterial::bind() unconditionally unmapped and remapped its
+GstVideoFrame on every call, even when redrawing the exact same
+GstBuffer as the previous call (e.g. a Silica controls-overlay
+animation repainting the still frame while paused). For memory
+backed by droid buffers, that map/unmap pair round-trips through
+droid_media_buffer_lock()/unlock() on the underlying gralloc buffer.
+Re-locking a buffer that isn't being actively cycled by the decoder
+can hit a slow path in some GPU drivers, stalling the render thread
+(and with it the whole Qt Quick event loop) for several seconds.
+
+Skip the unmap/remap when the buffer being bound is the same one
+already mapped from the previous bind() call, reusing the existing
+mapped GL texture ids instead.
+---
+ .../gst-plugins-good/ext/qt/gstqsgmaterial.cc | 22 ++++++++++++-------
+ 1 file changed, 14 insertions(+), 8 deletions(-)
+
+diff --git a/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc b/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
+index 4459a92c2f..b5aa6b14a9 100644
+--- a/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
++++ b/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
+@@ -494,7 +494,7 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
+   GstGLMemory *gl_mem;
+   gboolean use_dummy_tex = TRUE;
+ 
+-  if (this->v_frame.buffer) {
++  if (this->v_frame.buffer && this->v_frame.buffer != this->buffer_) {
+     gst_video_frame_unmap (&this->v_frame);
+     memset (&this->v_frame, 0, sizeof (this->v_frame));
+   }
+@@ -514,14 +514,20 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
+ 
+   gl = qt_context->gl_vtable;
+ 
+-  /* FIXME: should really lock the memory to prevent write access */
+-  if (!gst_video_frame_map (&this->v_frame, &this->v_info, this->buffer_,
+-        (GstMapFlags) (GST_MAP_READ | GST_MAP_GL))) {
+-    g_assert_not_reached ();
+-    goto out;
+-  }
++  if (this->v_frame.buffer) {
++    /* still mapped from a previous bind() of this same buffer (e.g. a
++     * redraw while paused); reuse it instead of re-locking the memory */
++    GST_LOG ("%p reusing already-mapped buffer with context %" GST_PTR_FORMAT, this, qt_context);
++  } else {
++    /* FIXME: should really lock the memory to prevent write access */
++    if (!gst_video_frame_map (&this->v_frame, &this->v_info, this->buffer_,
++          (GstMapFlags) (GST_MAP_READ | GST_MAP_GL))) {
++      g_assert_not_reached ();
++      goto out;
++    }
+ 
+-  GST_DEBUG ("%p attempting to bind with context %" GST_PTR_FORMAT, this, qt_context);
++    GST_DEBUG ("%p attempting to bind with context %" GST_PTR_FORMAT, this, qt_context);
++  }
+ 
+   mem = gst_buffer_peek_memory (this->buffer_, 0);
+   g_assert (gst_is_gl_memory (mem));
+-- 
+2.55.0
+
