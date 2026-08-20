@@ -17,6 +17,7 @@ Patch2:         0003-qml-Fix-build-with-Qt-5.6.patch
 Patch3:         0004-fix-wayland-seat-version.patch
 Patch4:         0005-qml-avoid-relocking-gl-memory-on-redraw.patch
 Patch5:         0006-qml-skip-sync-point-when-reusing-frame.patch
+Patch6:         0007-qml-cache-buffer-pool-in-propose-allocation.patch
 
 %define sonamever %(echo %{version} | cut -d '+' -f 1)
 
