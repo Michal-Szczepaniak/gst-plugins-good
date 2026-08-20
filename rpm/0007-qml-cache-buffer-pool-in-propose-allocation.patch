@@ -1,6 +1,6 @@
-From 286078dcffa95454c01d00750902210cd93c8786 Mon Sep 17 00:00:00 2001
+From 648d06f025a716abb619a442bcd7926446219565 Mon Sep 17 00:00:00 2001
 From: Michal Szczepaniak <m.szczepaniak.000@gmail.com>
-Date: Thu, 20 Aug 2026 23:24:43 +0200
+Date: Thu, 20 Aug 2026 23:06:54 +0200
 Subject: [PATCH 2/2] qml: actually cache the buffer pool in
  propose_allocation()
 
