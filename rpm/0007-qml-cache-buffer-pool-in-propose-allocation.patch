@@ -1,7 +1,8 @@
-From d71b0f78431cb393d2acdad7cd73e5b9b2ea0c36 Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Micha=C5=82=20Szczepaniak?= <m.szczepaniak.000@gmail.com>
-Date: Thu, 20 Aug 2026 22:44:45 +0200
-Subject: [PATCH] qml: actually cache the buffer pool in propose_allocation()
+From 648d06f025a716abb619a442bcd7926446219565 Mon Sep 17 00:00:00 2001
+From: Michal Szczepaniak <m.szczepaniak.000@gmail.com>
+Date: Thu, 20 Aug 2026 23:06:54 +0200
+Subject: [PATCH 2/2] qml: actually cache the buffer pool in
+ propose_allocation()
 
 qt_sink->pool was read once at the top of gst_qt_sink_propose_allocation()
 but never written back anywhere in the file, so despite the existing
@@ -10,41 +11,20 @@ old pool to compare against - every single allocation query created a
 brand new GstGLBufferPool (and with it, new GL memory) regardless of
 whether caps had genuinely changed.
 
-Diagnostic logging confirmed this: ~280 fresh GL memory (texture)
-allocations per second while the pipeline was simply paused, each one
-requiring a synchronous cross-thread dispatch onto the GL context's
-thread. At that rate this was flooding and effectively starving out
-other users of a shared Wayland display connection's reader lock
-(e.g. Qt's own Wayland platform plugin) for multiple seconds at a
-time - the underlying cause of the freeze this whole investigation
-has been chasing.
-
 Cache whichever pool ends up being used (reused or freshly created)
 back into qt_sink->pool so a matching-caps query on the next call can
-actually take the reuse path, and clear it in stop(). Also adds a
-diagnostic-only rate counter to /tmp/propose_alloc_rate.log to verify
-the fix and the underlying call frequency.
+actually take the reuse path, and clear it in stop().
 
 Signed-off-by: Michal Szczepaniak <m.szczepaniak.000@gmail.com>
 ---
- .../gst-plugins-good/ext/qt/gstqtsink.cc      | 58 ++++++++++++++++++-
- 1 file changed, 57 insertions(+), 1 deletion(-)
+ .../gst-plugins-good/ext/qt/gstqtsink.cc      | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
 
 diff --git a/subprojects/gst-plugins-good/ext/qt/gstqtsink.cc b/subprojects/gst-plugins-good/ext/qt/gstqtsink.cc
-index 48e9949e6b..9396da702f 100644
+index 48e9949e6b..fb440fe5cd 100644
 --- a/subprojects/gst-plugins-good/ext/qt/gstqtsink.cc
 +++ b/subprojects/gst-plugins-good/ext/qt/gstqtsink.cc
-@@ -76,6 +76,9 @@
- #include "gstqtsink.h"
- #include <QtGui/QGuiApplication>
- 
-+#include <stdio.h>
-+#include <time.h>
-+
- #include <gst/gl/gstglfuncs.h>
- 
- #define GST_CAT_DEFAULT gst_debug_qt_gl_sink
-@@ -330,6 +333,10 @@ gst_qt_sink_query (GstBaseSink * bsink, GstQuery * query)
+@@ -330,6 +330,10 @@ gst_qt_sink_query (GstBaseSink * bsink, GstQuery * query)
  static gboolean
  gst_qt_sink_stop (GstBaseSink * bsink)
  {
@@ -55,58 +35,7 @@ index 48e9949e6b..9396da702f 100644
    return TRUE;
  }
  
-@@ -468,6 +475,33 @@ gst_qt_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
-   return GST_FLOW_OK;
- }
- 
-+static void
-+debug_count_propose_allocation (gboolean caps_matched)
-+{
-+  static long total = 0, matched = 0;
-+  static struct timespec last = { 0, 0 };
-+  struct timespec now;
-+  long delta_ms;
-+
-+  total++;
-+  if (caps_matched)
-+    matched++;
-+  clock_gettime (CLOCK_REALTIME, &now);
-+  delta_ms = (now.tv_sec - last.tv_sec) * 1000 +
-+      (now.tv_nsec - last.tv_nsec) / 1000000;
-+  if (delta_ms >= 1000) {
-+    FILE *f = fopen ("/tmp/propose_alloc_rate.log", "a");
-+    if (f) {
-+      fprintf (f, "propose_allocation total=%ld matched=%ld over_ms=%ld ts=%ld.%09ld\n",
-+          total, matched, delta_ms, (long) now.tv_sec, now.tv_nsec);
-+      fclose (f);
-+    }
-+    total = 0;
-+    matched = 0;
-+    last = now;
-+  }
-+}
-+
- static gboolean
- gst_qt_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
- {
-@@ -477,6 +511,7 @@ gst_qt_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
-   GstCaps *caps;
-   guint size;
-   gboolean need_pool;
-+  gboolean dbg_caps_matched = FALSE;
- 
-   if (!qt_sink->display || !qt_sink->context)
-     return FALSE;
-@@ -503,6 +538,8 @@ gst_qt_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
-       /* different caps, we can't use this pool */
-       gst_object_unref (pool);
-       pool = NULL;
-+    } else {
-+      dbg_caps_matched = TRUE;
-     }
-     gst_structure_free (config);
-   } else {
-@@ -516,7 +553,7 @@ gst_qt_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
+@@ -516,7 +520,7 @@ gst_qt_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
    }
  
    if (pool == NULL && need_pool) {
@@ -115,7 +44,7 @@ index 48e9949e6b..9396da702f 100644
      GST_DEBUG_OBJECT (qt_sink, "create new pool");
      pool = gst_gl_buffer_pool_new (qt_sink->context);
  
-@@ -526,6 +563,25 @@ gst_qt_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
+@@ -526,6 +530,19 @@ gst_qt_sink_propose_allocation (GstBaseSink * bsink, GstQuery * query)
        goto config_failed;
    }
  
@@ -125,18 +54,12 @@ index 48e9949e6b..9396da702f 100644
 +   * falling through to "create new pool". Previously qt_sink->pool was
 +   * only ever read here and never written back, so every single
 +   * allocation query - not just ones where caps genuinely changed -
-+   * allocated a brand new GstGLBufferPool (and with it, new GL memory).
-+   * That is expensive on its own, and when propose_allocation() ends up
-+   * being called at a high rate (e.g. due to repeated renegotiation),
-+   * the resulting flood of GL memory creation was observed to starve
-+   * out other users of a shared Wayland display connection's reader
-+   * lock for multiple seconds at a time. */
++   * allocated a brand new GstGLBufferPool (and with it, new GL memory)
++   * for no reason. */
 +  if (qt_sink->pool != pool) {
 +    gst_clear_object (&qt_sink->pool);
 +    qt_sink->pool = pool ? (GstBufferPool *) gst_object_ref (pool) : NULL;
 +  }
-+
-+  debug_count_propose_allocation (dbg_caps_matched);
 +
    /* we need at least 2 buffer because we hold on to the last one */
    gst_query_add_allocation_pool (query, pool, size, 2, 0);

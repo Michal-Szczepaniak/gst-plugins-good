@@ -1,58 +1,69 @@
-From da4f5102e441ce5ccd93b550b35bd761f0e94013 Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Micha=C5=82=20Szczepaniak?= <m.szczepaniak.000@gmail.com>
-Date: Thu, 20 Aug 2026 21:08:21 +0200
-Subject: [PATCH] qml: skip re-establishing the GL sync point when reusing a
- frame
+From 002d594859f3ef9fa6f755dd27888c7b8c6bb1a8 Mon Sep 17 00:00:00 2001
+From: Michal Szczepaniak <m.szczepaniak.000@gmail.com>
+Date: Thu, 20 Aug 2026 23:06:40 +0200
+Subject: [PATCH 1/2] qml: skip re-establishing the GL sync point when reusing
+ a frame
 
 bind() already avoids re-locking (gst_video_frame_map) the buffer's
 memory when redrawing the same already-mapped frame (e.g. repeated
 repaints while paused), but was still unconditionally calling
 gst_gl_sync_meta_set_sync_point()/gst_gl_sync_meta_wait() on every
-single call regardless.
-
-Both of those do a synchronous cross-thread dispatch
-(gst_gl_context_thread_add()) onto the video memory's owning
-GstGLContext's thread. There is nothing to (re-)synchronize when
+single call regardless. There is nothing to (re-)synchronize when
 reusing a frame that was already synced on its first bind() and
-hasn't changed since, so skip both calls in that case too.
-
-This matters beyond wasted work: diagnostic logging showed bind()
-being invoked at a very high rate during redraw bursts, and each
-call's two thread-add dispatches were flooding the GL context
-thread's GMainContext, which in turn was hammering the reader lock
-of a wl_display connection shared with the Qt Wayland platform
-plugin - starving Qt's own event processing for multiple seconds at
-a time.
+hasn't changed since, so skip both (each a synchronous cross-thread
+dispatch) in that case too.
 
 Signed-off-by: Michal Szczepaniak <m.szczepaniak.000@gmail.com>
 ---
- .../gst-plugins-good/ext/qt/gstqsgmaterial.cc | 31 ++++++++++++++-----
- 1 file changed, 23 insertions(+), 8 deletions(-)
+ .../gst-plugins-good/ext/qt/gstqsgmaterial.cc | 51 +++++++++++++------
+ 1 file changed, 36 insertions(+), 15 deletions(-)
 
 diff --git a/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc b/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
-index b5aa6b14a9..1df5885f2c 100644
+index 4459a92c2f..1df5885f2c 100644
 --- a/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
 +++ b/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
-@@ -493,6 +493,7 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
+@@ -493,8 +493,9 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
    GstMemory *mem;
    GstGLMemory *gl_mem;
    gboolean use_dummy_tex = TRUE;
 +  gboolean reused_frame;
  
-   if (this->v_frame.buffer && this->v_frame.buffer != this->buffer_) {
+-  if (this->v_frame.buffer) {
++  if (this->v_frame.buffer && this->v_frame.buffer != this->buffer_) {
      gst_video_frame_unmap (&this->v_frame);
-@@ -514,7 +515,9 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
+     memset (&this->v_frame, 0, sizeof (this->v_frame));
+   }
+@@ -514,14 +515,22 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
  
    gl = qt_context->gl_vtable;
  
--  if (this->v_frame.buffer) {
+-  /* FIXME: should really lock the memory to prevent write access */
+-  if (!gst_video_frame_map (&this->v_frame, &this->v_info, this->buffer_,
+-        (GstMapFlags) (GST_MAP_READ | GST_MAP_GL))) {
+-    g_assert_not_reached ();
+-    goto out;
+-  }
 +  reused_frame = this->v_frame.buffer != NULL;
-+
+ 
+-  GST_DEBUG ("%p attempting to bind with context %" GST_PTR_FORMAT, this, qt_context);
 +  if (reused_frame) {
-     /* still mapped from a previous bind() of this same buffer (e.g. a
-      * redraw while paused); reuse it instead of re-locking the memory */
-     GST_LOG ("%p reusing already-mapped buffer with context %" GST_PTR_FORMAT, this, qt_context);
-@@ -535,13 +538,25 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
++    /* still mapped from a previous bind() of this same buffer (e.g. a
++     * redraw while paused); reuse it instead of re-locking the memory */
++    GST_LOG ("%p reusing already-mapped buffer with context %" GST_PTR_FORMAT, this, qt_context);
++  } else {
++    /* FIXME: should really lock the memory to prevent write access */
++    if (!gst_video_frame_map (&this->v_frame, &this->v_info, this->buffer_,
++          (GstMapFlags) (GST_MAP_READ | GST_MAP_GL))) {
++      g_assert_not_reached ();
++      goto out;
++    }
++
++    GST_DEBUG ("%p attempting to bind with context %" GST_PTR_FORMAT, this, qt_context);
++  }
+ 
+   mem = gst_buffer_peek_memory (this->buffer_, 0);
+   g_assert (gst_is_gl_memory (mem));
+@@ -529,13 +538,25 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
  
    context = ((GstGLBaseMemory *)mem)->context;
  
