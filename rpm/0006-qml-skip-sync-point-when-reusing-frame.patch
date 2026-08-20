@@ -1,4 +1,4 @@
-From da4f5102e441ce5ccd93b550b35bd761f0e94013 Mon Sep 17 00:00:00 2001
+From da02d49d08cc33e502297ebaa1ad6044a136470a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Micha=C5=82=20Szczepaniak?= <m.szczepaniak.000@gmail.com>
 Date: Thu, 20 Aug 2026 21:08:21 +0200
 Subject: [PATCH] qml: skip re-establishing the GL sync point when reusing a
@@ -26,33 +26,25 @@ a time.
 
 Signed-off-by: Michal Szczepaniak <m.szczepaniak.000@gmail.com>
 ---
- .../gst-plugins-good/ext/qt/gstqsgmaterial.cc | 31 ++++++++++++++-----
- 1 file changed, 23 insertions(+), 8 deletions(-)
+ .../gst-plugins-good/ext/qt/gstqsgmaterial.cc | 30 ++++++++++++++-----
+ 1 file changed, 22 insertions(+), 8 deletions(-)
 
 diff --git a/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc b/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
-index b5aa6b14a9..1df5885f2c 100644
+index b5aa6b14a9..113aed2d30 100644
 --- a/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
 +++ b/subprojects/gst-plugins-good/ext/qt/gstqsgmaterial.cc
-@@ -493,6 +493,7 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
-   GstMemory *mem;
-   GstGLMemory *gl_mem;
-   gboolean use_dummy_tex = TRUE;
-+  gboolean reused_frame;
- 
-   if (this->v_frame.buffer && this->v_frame.buffer != this->buffer_) {
-     gst_video_frame_unmap (&this->v_frame);
-@@ -514,7 +515,9 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
+@@ -514,7 +514,9 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
  
    gl = qt_context->gl_vtable;
  
 -  if (this->v_frame.buffer) {
-+  reused_frame = this->v_frame.buffer != NULL;
++  gboolean reused_frame = this->v_frame.buffer != NULL;
 +
 +  if (reused_frame) {
      /* still mapped from a previous bind() of this same buffer (e.g. a
       * redraw while paused); reuse it instead of re-locking the memory */
      GST_LOG ("%p reusing already-mapped buffer with context %" GST_PTR_FORMAT, this, qt_context);
-@@ -535,13 +538,25 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
+@@ -535,13 +537,25 @@ GstQSGMaterial::bind(GstQSGMaterialShader *shader, GstVideoFormat v_format)
  
    context = ((GstGLBaseMemory *)mem)->context;
  
