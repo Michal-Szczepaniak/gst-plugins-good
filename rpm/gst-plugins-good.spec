@@ -17,6 +17,7 @@ Patch2:         0003-qml-Fix-build-with-Qt-5.6.patch
 Patch3:         0004-fix-wayland-seat-version.patch
 Patch4:         0005-qml-avoid-relocking-gl-memory-on-redraw.patch
 Patch5:         0006-qml-reactivate-gl-context-after-recreation.patch
+Patch6:         0007-qml-force-fresh-gl-context-wrap-after-recreation.patch
 
 %define sonamever %(echo %{version} | cut -d '+' -f 1)
 

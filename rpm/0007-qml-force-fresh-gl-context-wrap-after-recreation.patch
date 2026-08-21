@@ -1,0 +1,30 @@
+diff --git a/subprojects/gst-plugins-good/ext/qt/qtitem.cc b/subprojects/gst-plugins-good/ext/qt/qtitem.cc
+index 7114b97020..9f17a3e597 100644
+--- a/subprojects/gst-plugins-good/ext/qt/qtitem.cc
++++ b/subprojects/gst-plugins-good/ext/qt/qtitem.cc
+@@ -751,6 +751,25 @@ QtGLVideoItem::onSceneGraphInitialized ()
+     return;
+   }
+ 
++  if (this->priv->other_context) {
++    /* We've reached here because Qt's own QOpenGLContext pointer just
++     * changed (see the check above) - meaning Qt tore down and rebuilt its
++     * GL context, e.g. because the display was blanked and unblanked.
++     * gst_qt_get_gl_wrapcontext() below, when it finds a GstGLContext
++     * already marked "current" on this thread, just reuses that object
++     * instead of building a fresh wrapper - and nothing else on this
++     * thread ever deactivates priv->other_context once it's first
++     * activated (see updatePaintNode()), so without this, that stale
++     * reuse check would keep finding our *old* context still marked
++     * current and hand it right back unchanged: priv->other_context
++     * would end up pointing at the exact same (now wrong) object as
++     * before, silently, even though the real Qt context underneath it
++     * has already changed. Explicitly deactivating it here first forces
++     * gst_qt_get_gl_wrapcontext() to build a genuinely new wrapper
++     * around whatever context Qt actually has current now. */
++    gst_gl_context_activate (this->priv->other_context, FALSE);
++  }
++
+   this->priv->initted = gst_qt_get_gl_wrapcontext (this->priv->display,
+       &this->priv->other_context, &this->priv->context);
+ 
