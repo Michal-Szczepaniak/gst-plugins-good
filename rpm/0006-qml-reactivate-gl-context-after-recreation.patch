@@ -1,0 +1,22 @@
+diff --git a/subprojects/gst-plugins-good/ext/qt/qtitem.cc b/subprojects/gst-plugins-good/ext/qt/qtitem.cc
+index 6a6dad71d9..7114b97020 100644
+--- a/subprojects/gst-plugins-good/ext/qt/qtitem.cc
++++ b/subprojects/gst-plugins-good/ext/qt/qtitem.cc
+@@ -312,7 +312,16 @@ QtGLVideoItem::updatePaintNode(QSGNode * oldNode,
+     return NULL;
+   }
+ 
+-  if (gst_gl_context_get_current() == NULL)
++  /* Checking for NULL here isn't enough: if the scene graph's GL context
++   * was torn down and recreated (e.g. Qt destroys and rebuilds it when the
++   * display is blanked/unblanked - see onSceneGraphInitialized(), which
++   * rebuilds priv->other_context to match), this thread's previously-active
++   * context is still non-NULL, just stale - it belongs to a share-group
++   * that no longer includes the current one. Binding textures with the
++   * wrong context active silently renders nothing (black), it doesn't
++   * error. Compare identity, not just nullness, so a stale context still
++   * gets replaced with the current priv->other_context. */
++  if (gst_gl_context_get_current() != this->priv->other_context)
+     gst_gl_context_activate (this->priv->other_context, TRUE);
+ 
+   if (texNode) {
