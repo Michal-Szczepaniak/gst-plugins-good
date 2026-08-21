@@ -18,6 +18,7 @@ Patch3:         0004-fix-wayland-seat-version.patch
 Patch4:         0005-qml-avoid-relocking-gl-memory-on-redraw.patch
 Patch5:         0006-qml-reactivate-gl-context-after-recreation.patch
 Patch6:         0007-qml-force-fresh-gl-context-wrap-after-recreation.patch
+Patch7:         0008-qml-validate-current-gl-context-before-reuse.patch
 
 %define sonamever %(echo %{version} | cut -d '+' -f 1)
 

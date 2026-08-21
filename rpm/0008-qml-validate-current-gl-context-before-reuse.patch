@@ -1,0 +1,24 @@
+diff --git a/subprojects/gst-plugins-good/ext/qt/gstqtglutility.cc b/subprojects/gst-plugins-good/ext/qt/gstqtglutility.cc
+index 3c03151f8a..e3b73b3549 100644
+--- a/subprojects/gst-plugins-good/ext/qt/gstqtglutility.cc
++++ b/subprojects/gst-plugins-good/ext/qt/gstqtglutility.cc
+@@ -237,9 +237,17 @@ gst_qt_get_gl_wrapcontext (GstGLDisplay * display,
+   gl_api = gst_gl_context_get_current_gl_api (platform, NULL, NULL);
+   gl_handle = gst_gl_context_get_current_gl_context (platform);
+ 
+-  /* see if we already have a current GL context in GStreamer for this thread */
++  /* see if we already have a current GL context in GStreamer for this thread.
++   * gst_gl_context_get_current() returns whatever was last activated on this
++   * thread via a raw thread-local pointer - it isn't refcounted, so if that
++   * context was since destroyed elsewhere without deactivating it first (e.g.
++   * Qt tears down and rebuilds its GL context on display blank/unblank), this
++   * can be a dangling pointer. Validate it's still a live GstGLContext before
++   * dereferencing it, same as the priv->other_context check below - if it's
++   * stale, fall through and build a fresh wrapper instead of touching freed
++   * memory. */
+   current = gst_gl_context_get_current ();
+-  if (current && current->display == display) {
++  if (current && GST_IS_GL_CONTEXT (current) && current->display == display) {
+     /* just use current context we found */
+     *wrap_glcontext = static_cast<GstGLContext *> (gst_object_ref (current));
+   }
