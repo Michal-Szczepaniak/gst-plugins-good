@@ -1,0 +1,30 @@
+diff --git a/subprojects/gst-plugins-good/ext/qt/qtitem.cc b/subprojects/gst-plugins-good/ext/qt/qtitem.cc
+index 9f17a3e597..6c259aaa13 100644
+--- a/subprojects/gst-plugins-good/ext/qt/qtitem.cc
++++ b/subprojects/gst-plugins-good/ext/qt/qtitem.cc
+@@ -782,7 +782,24 @@ QtGLVideoItem::onSceneGraphInitialized ()
+ void
+ QtGLVideoItem::onSceneGraphInvalidated ()
+ {
+-  GST_FIXME ("%p scene graph invalidated", this);
++  GST_DEBUG ("%p scene graph invalidated, dropping wrapped GL contexts", this);
++
++  g_mutex_lock (&this->priv->lock);
++
++  if (this->priv->context) {
++    gst_object_unref (this->priv->context);
++    this->priv->context = NULL;
++  }
++
++  if (this->priv->other_context) {
++    gst_object_unref (this->priv->other_context);
++    this->priv->other_context = NULL;
++  }
++
++  this->priv->qt_context = NULL;
++  this->priv->initted = FALSE;
++
++  g_mutex_unlock (&this->priv->lock);
+ }
+ 
+ /*
